@@ -23,12 +23,10 @@ export default {
 
     try {
 
-      // Serwuj index.html dla głównej strony
       if (url.pathname === '/' || url.pathname === '/index.html') {
         return fetch(request);
       }
 
-      // API endpoint
       if (url.pathname === '/api') {
 
         if (action === 'search') {
@@ -74,7 +72,6 @@ export default {
           const schedMap = {};
           routes.forEach(r => { schedMap[r.orderId] = r; });
 
-          // Zbierz unikalne opóźnione pociągi
           const delayedSet = new Map();
           trains.forEach(t => {
             if (t.trainStatus === 'C') return;
@@ -88,7 +85,6 @@ export default {
             });
           });
 
-          // Pobierz pełne trasy równolegle (max 15)
           const routeMap = {};
           const toFetch = [...delayedSet.values()].slice(0, 15);
           await Promise.all(toFetch.map(async t => {
@@ -115,7 +111,6 @@ export default {
               const carrierCode = r.carrierCode || '';
               const catSymbol   = r.commercialCategorySymbol || '';
 
-              // Relacja z pełnej trasy
               const fullRoute = routeMap[t.orderId];
               const fullStops = fullRoute?.stations || [];
               const routeDict = fullRoute?.dictionaries?.stations || {};
@@ -161,7 +156,6 @@ export default {
         return json({ error: 'Unknown action' }, 400);
       }
 
-      // Dla wszystkich innych ścieżek serwuj pliki statyczne
       return fetch(request);
 
     } catch(e) {
