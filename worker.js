@@ -16,6 +16,28 @@ function json(data, status = 200) {
   return new Response(JSON.stringify(data), { status, headers: CORS });
 }
 
+// Czy pociąg powinien być jeszcze pokazywany?
+// Pokazuj dopóki plannedTime + delayMinutes + 10 minut nie minęło
+function isStillRelevant(stop, delayMinutes) {
+  const timeStr = stop.plannedDeparture || stop.plannedArrival;
+  if (!timeStr) return true;
+  try {
+    // Czas planowany jest w formacie HH:MM:SS w strefie polskiej
+    // Cloudflare Workers działa w UTC — oblicz offset
+    const now = new Date();
+    const warsawStr = now.toLocaleString('en-CA', { timeZone: 'Europe/Warsaw', hour12: false }).replace(', ', 'T');
+    const utcStr    = now.toLocaleString('en-CA', { timeZone: 'UTC',            hour12: false }).replace(', ', 'T');
+    const offsetMs  = new Date(warsawStr) - new Date(utcStr); // np. +7200000 dla UTC+2
+    const todayWarsaw = now.toLocaleDateString('sv-SE', { timeZone: 'Europe/Warsaw' });
+    // Czas planowany jako UTC
+    const plannedUTC = new Date(todayWarsaw + 'T' + timeStr).getTime() - offsetMs;
+    // Rzeczywisty odjazd = planowany + opóźnienie
+    const actualUTC  = plannedUTC + delayMinutes * 60000;
+    // Pokazuj jeszcze przez 10 minut po rzeczywistym odjeździe
+    return Date.now() < actualUTC + 10 * 60000;
+  } catch { return true; }
+}
+
 export default {
   async fetch(request) {
     const url    = new URL(request.url);
@@ -23,12 +45,10 @@ export default {
 
     try {
 
-      // Serwuj index.html dla głównej strony
       if (url.pathname === '/' || url.pathname === '/index.html') {
         return fetch(request);
       }
 
-      // API endpoint
       if (url.pathname === '/api') {
 
         if (action === 'search') {
@@ -74,7 +94,7 @@ export default {
           const schedMap = {};
           routes.forEach(r => { schedMap[r.orderId] = r; });
 
-          // Zbierz unikalne opóźnione pociągi
+          // Zbierz unikalne opóźnione pociągi które są jeszcze aktualne
           const delayedSet = new Map();
           trains.forEach(t => {
             if (t.trainStatus === 'C') return;
@@ -84,6 +104,7 @@ export default {
               const cancelled = t.trainStatus === 'X';
               const delay = Math.max(stop.departureDelayMinutes || 0, stop.arrivalDelayMinutes || 0);
               if (!cancelled && delay <= 0) return;
+              if (!isStillRelevant(stop, delay)) return;
               if (!delayedSet.has(t.orderId)) delayedSet.set(t.orderId, t);
             });
           });
@@ -110,12 +131,12 @@ export default {
               const cancelled = t.trainStatus === 'X';
               const delay = Math.max(stop.departureDelayMinutes || 0, stop.arrivalDelayMinutes || 0);
               if (!cancelled && delay <= 0) return;
+              if (!isStillRelevant(stop, delay)) return;
 
               const r           = schedMap[t.orderId] || {};
               const carrierCode = r.carrierCode || '';
               const catSymbol   = r.commercialCategorySymbol || '';
 
-              // Relacja z pełnej trasy
               const fullRoute = routeMap[t.orderId];
               const fullStops = fullRoute?.stations || [];
               const routeDict = fullRoute?.dictionaries?.stations || {};
@@ -161,7 +182,6 @@ export default {
         return json({ error: 'Unknown action' }, 400);
       }
 
-      // Dla wszystkich innych ścieżek serwuj pliki statyczne
       return fetch(request);
 
     } catch(e) {
